@@ -1,4 +1,4 @@
-# stereo
+# Stereo
 Compute a dense disparity map using the Fundamental matrix of 2 images.
 
 # Progress of the project:
@@ -26,5 +26,5 @@ python3 stereo.py <left-image> <right-image>
 ![Harris corners](./output_harris_corners.jpg)
 
 ## Correspondences:
-![Correspondences](./output_correspondences.jpg)
+
 
