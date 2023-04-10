@@ -26,5 +26,7 @@ python3 stereo.py <left-image> <right-image>
 ![Harris corners](./output_harris_corners.jpg)
 
 ## Correspondences:
+![Correspondences](./output_correspondences.jpg)
+![Inliers](./output_inliers.jpg)
 
 

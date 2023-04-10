@@ -1,22 +1,92 @@
+#!/usr/bin/python3
+
 import cv2
 import numpy as np
 import argparse
 
-
-def calculate_fundamental_matrix(points1, points2):
+def get_images(image_paths, scale_factor=1.0):
     """
-    Calculate the fundamental matrix from the given 8 correspondences.
+    Read in the images
+    ## Returns:
+        images: a list of the images
+    """
+    images = []
+    for image_path in image_paths:
+        img = cv2.imread(image_path)
+        if scale_factor != 1.0:
+            img = cv2.resize(img, (0, 0), fx=scale_factor, fy=scale_factor)
+        images.append(img)
+    return images
+
+
+def estimate_fundamental_matrix(points1, points2):
+    """
+    Calculate the fundamental matrix from the given correspondences (at least 8).
     """ 
+    # form the A matrix
+    num_points = min(points1.shape[0], points2.shape[0])
+    A = np.empty((num_points, 9))
+    
+    for i in range(num_points):
+        x1, y1 = points1[i]
+        x2, y2 = points2[i]
+        A[i] = np.array([x2*x1, x2*y1, x2, y2*x1, y2*y1, y2, x1, y1, 1])
+
+    # find SVD 
+    U, S, Vh = np.linalg.svd(A)
+    
+    # F is given by the column of Vh that has the smallest singular value
+    F = np.reshape(Vh[-1], (3, 3))
+    
+    # force F to be singular by setting smallest singular value to zero
+    U, S, Vh = np.linalg.svd(F)
+    S[-1] = 0
+    F = U @ np.diag(S) @ Vh
 
     return F
 
 
-def fundamental_ransac(correspondences, max_iter = 2000):
+def fundamental_ransac(correspondences, iterations = 2000, threshold = 0.01):
     """
     Compute the fundamental matrix using RANSAC.
     """
+    points1 = correspondences[0]
+    points2 = correspondences[1]
+    points1_homogenous = np.append(points1, np.ones((points1.shape[0], 1)), axis=1)
+    points2_homogenous = np.append(points2, np.ones((points2.shape[0], 1)), axis=1)
+    
+    best_inliers = None
+    best_F = None
+    most_inliers = 0
+    
+    for _ in range(iterations):
+        # choose 8 random points
+        rand_indexes = np.random.choice(points1.shape[0], 8, replace=False)
+        rand_points1 = points1[rand_indexes]
+        rand_points2 = points2[rand_indexes]
+              
+        # find F
+        F = estimate_fundamental_matrix(rand_points1, rand_points2)
+        
+        # count inliers (use fact that a*F*b.T = 0)
+        residuals = np.empty((points1_homogenous.shape[0], ))
+        for i in range(residuals.shape[0]):
+            residuals[i] = np.abs(points1_homogenous[i] @ F @ points2_homogenous[i].T)
 
-    return best_F
+        num_inliers = np.sum(residuals < threshold)
+        
+        # record if best
+        if num_inliers > most_inliers:
+            most_inliers = num_inliers
+            best_F = F
+            # build correspondences
+            best_inliers = (points1[residuals < threshold], points2[residuals < threshold])
+
+    # re-estimate F using best inliers
+    best_F = estimate_fundamental_matrix(*best_inliers)
+
+    return best_F, best_inliers
+
 
 def get_nonmax_suppression(img, window_size=5):
     """
@@ -110,26 +180,24 @@ def get_harris_corners(img, num_corners=1000, window_size=5, neighborhood_size=7
     return corners, neighborhoods
 
 
-
-
 def get_correspondences(corners1, neighborhoods1, corners2, neighborhoods2, max_correspondences_per_feature=5):
     """
     Find correspondences between the two images, returned as a dictionary mapping the corners
     from image1 to the corners in image2
     
     ## Returns:
-        final_correspondences: dictionary mapping (x1, y1) to (x2, y2)
+        corr_a, corr_b: Two arrays of points where the same indexes correspond
     """
-    final_correspondences = {}
-    
+    corr_a = []
+    corr_b = []
     # normalize neighborhoods
-    print(neighborhoods1.shape)
     neighborhoods1 -= neighborhoods1.mean(axis=0, keepdims=True)
     neighborhoods1 /= np.linalg.norm(neighborhoods1, axis=0)
 
     neighborhoods2 -= neighborhoods2.mean(axis=0, keepdims=True)
     neighborhoods2 /= np.linalg.norm(neighborhoods2, axis=0)
 
+    # magic
     target_features_hashes = []
     for c1, n1 in zip(corners1, neighborhoods1):
         best_corner = (corners2[0], 0)
@@ -141,22 +209,16 @@ def get_correspondences(corners1, neighborhoods1, corners2, neighborhoods2, max_
         best_corner_hash = hash(best_corner[0].tobytes())
         if target_features_hashes.count(best_corner_hash) < max_correspondences_per_feature:
             target_features_hashes.append(best_corner_hash)
-            final_correspondences[tuple(c1)] = best_corner[0]
+            corr_a.append(c1)
+            corr_b.append(best_corner[0])
 
-    return final_correspondences
-
-
-def get_args():
-    """
-    Parse the command line arguments and return the two images
-    """
-
-
+    return np.array(corr_a), np.array(corr_b)
 
 
 ##########################
 # Display helper functions
 ##########################
+
 
 def display_harris_corners(img1, corners1, img2=None, corners2=None):
     """
@@ -180,31 +242,40 @@ def display_correspondences(img1, img2, correspondences, inliers=None):
     """
     Display the correspondences between the two images one on top of the other with lines
     """
-
+    if inliers is None:
+        color_func = lambda: np.random.uniform(0, 255, (3,))
+    else:
+        color_func = lambda: (0, 0, 255)
+        
     images = np.concatenate((img1, img2), axis=1) 
-    for (c1r, c1c), (c2r, c2c) in correspondences.items():
+    for (c1r, c1c), (c2r, c2c) in zip(correspondences[0], correspondences[1]):
         cv2.circle(images, (c1r, c1c), 2, (255, 0, 0), -1)
         cv2.circle(images, (c2r+img1.shape[1], c2c), 2, (255, 0, 0), -1)
-        cv2.line(images, (c1r, c1c), (c2r+img1.shape[1], c2c), thickness=1, color=(0, 0, 255))
+        cv2.line(images, (c1r, c1c), (c2r+img1.shape[1], c2c), thickness=1, color=color_func())
     if inliers is not None:
-        for (c1r, c1c), (c2r, c2c) in inliers.items():
+        for (c1r, c1c), (c2r, c2c) in zip(inliers[0], inliers[1]):
             cv2.line(images, (c1r, c1c), (c2r+img1.shape[1], c2c), thickness=1, color=(0, 255, 0))
-    cv2.imshow("correspondences", images)
-    cv2.imwrite("output_correspondences.jpg", images)
+        cv2.imshow("inliers", images)
+        cv2.imwrite("output_inliers.jpg", images)
+    else:
+        cv2.imshow("correspondences", images)
+        cv2.imwrite("output_correspondences.jpg", images)
+
+
+#######
+# Main
+#######
 
 
 def main():
     # Read in the command line arguments
     parser = argparse.ArgumentParser(description='Process multiple image files')
     parser.add_argument('image_filenames', type=str, nargs='+', help='the filenames of the images to process')
-
     args = parser.parse_args()
-
     image_filenames = args.image_filenames
 
     # Read in the images
-    img1 = cv2.imread(image_filenames[0])
-    img2 = cv2.imread(image_filenames[1])
+    img1, img2 = get_images(image_filenames, scale_factor=1.0)
 
     # ii. Apply Harris corner detector to both images: compute Harris R function over the
     # image, and then do non-maximum suppression to get a sparse set of corner features.
@@ -214,12 +285,13 @@ def main():
 
     # iii. For each corner feature in image 1, find the best matching corner feature in image 2
     correspondences = get_correspondences(corners1, neighborhoods1, corners2, neighborhoods2)
+    display_correspondences(img1, img2, correspondences)
 
     # iv. Use RANSAC to find the fundamental matrix that best fits the correspondences
     fundmental_matrix, best_set_corresp = fundamental_ransac(correspondences)
-    print("Fundamental : \n", fundmental_matrix)
+    print("Fundamental Matrix: \n", fundmental_matrix)
     display_correspondences(img1, img2, correspondences, best_set_corresp)
-
+    
     # v. disparity map
     
 
