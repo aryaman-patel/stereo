@@ -29,4 +29,7 @@ python3 stereo.py <left-image> <right-image>
 ![Correspondences](./output_correspondences.jpg)
 ![Inliers](./output_inliers.jpg)
 
+## Epipolar Lines
+![Epipolar Lines](./output_epipolar_lines.jpg)
+
 

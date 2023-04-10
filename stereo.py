@@ -262,6 +262,35 @@ def display_correspondences(img1, img2, correspondences, inliers=None):
         cv2.imwrite("output_correspondences.jpg", images)
 
 
+def display_epipolar_lines(img1, img2, fundamental_matrix, correspondences, num_points=50):
+    frame1 = img1.copy()
+    frame2 = img2.copy()
+    points1_homogenous = np.append(correspondences[0], np.ones((correspondences[0].shape[0], 1)), axis=1)[:num_points]
+    points2_homogenous = np.append(correspondences[1], np.ones((correspondences[1].shape[0], 1)), axis=1)[:num_points]
+        
+    # left image
+    lines = fundamental_matrix @ points1_homogenous.T
+    for l in lines.T:
+        # calculate points on line at x=0 and x=frame.shape[1]
+        # line is defined by l[0]*x + l[1]*y + l[2] = 0
+        p1 = (0, int(-l[2]/l[1]))
+        p2 = (frame1.shape[1], int(-(l[0]*frame1.shape[1]+l[2])/l[1]))
+        frame1 = cv2.line(frame1, p1, p2, (255, 0, 0))
+    for p in points1_homogenous:
+        cv2.circle(frame1, (int(p[0]), int(p[1])), 2, (0, 0, 255), -1)
+
+    # right image
+    lines = fundamental_matrix.T @ points2_homogenous.T
+    for l in lines.T:
+        p1 = (0, int(-l[2]/l[1]))
+        p2 = (frame2.shape[1], int(-(l[0]*frame2.shape[1]+l[2])/l[1]))
+        frame2 = cv2.line(frame2, p1, p2, (255, 0, 0))
+    for p in points2_homogenous:
+        cv2.circle(frame2, (int(p[0]), int(p[1])), 2, (0, 0, 255), -1)
+        
+    cv2.imshow("Epipolar Lines", np.hstack([frame1, frame2]))
+    cv2.imwrite("output_epipolar_lines.jpg", np.hstack([frame1, frame2]))
+
 #######
 # Main
 #######
@@ -291,6 +320,7 @@ def main():
     fundmental_matrix, best_set_corresp = fundamental_ransac(correspondences)
     print("Fundamental Matrix: \n", fundmental_matrix)
     display_correspondences(img1, img2, correspondences, best_set_corresp)
+    display_epipolar_lines(img1, img2, fundmental_matrix, correspondences)
     
     # v. disparity map
     
