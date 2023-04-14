@@ -3,6 +3,71 @@
 import cv2
 import numpy as np
 import argparse
+import matplotlib.pyplot as plt
+from tqdm import *
+
+
+def computeDisparityMap(img1, img2, F):
+    """
+    Compute the disparity map using the fundamental matrix.
+    ## Args:
+        stereo images: input images
+        F: Best fundamental calculated
+    ## Returns:
+        Normalized disparity map
+    """
+    # Convert to grayscale.
+    image_1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+    image_2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+
+    # Set the window size.
+    window = 7
+
+    # Initialize the left and right stero arrays
+    left_arr, right_arr = image_1, image_2
+    left_arr, right_arr = left_arr.astype(int), right_arr.astype(int)
+
+    # CHECK
+    if left_arr.shape != right_arr.shape:
+        raise Exception("Left- Right image shape do not match")
+    
+    # Get the h and w of the image
+    h, w = left_arr.shape
+
+    # Initialize the disparity map
+    disparity_map = np.zeros((h,w))
+
+    #Compute disparity of each pixel.
+    x_new = w - (2*window)
+    for y in tqdm(range(window, h-window)):
+        block_left_arr = []
+        block_right_arr = []
+        for x in range(window, w-window):
+            block_left = left_arr[y:y + window,
+                                    x:x + window]
+            block_left_arr.append(block_left.flatten())
+
+            block_right = right_arr[y:y + window,
+                                    x:x + window]
+            block_right_arr.append(block_right.flatten())
+
+        block_left_arr = np.array(block_left_arr)
+        block_left_arr = np.repeat(block_left_arr[:, :, np.newaxis], x_new, axis=2)
+
+        block_right_arr = np.array(block_right_arr)
+        block_right_arr = np.repeat(block_right_arr[:, :, np.newaxis], x_new, axis=2)
+        block_right_arr = block_right_arr.T
+
+        abs_diff = np.abs(block_left_arr - block_right_arr)
+        sum_abs_diff = np.sum(abs_diff, axis = 1)
+        idx = np.argmin(sum_abs_diff, axis = 0)
+        disparity = np.abs(idx - np.linspace(0, x_new, x_new, dtype=int)).reshape(1, x_new)
+        disparity_map[y, 0:x_new] = disparity 
+        # Convert to uint8
+        disparity_map_int = np.uint8(disparity_map * 255 / np.max(disparity_map))
+
+    return disparity_map_int
+
 
 def get_images(image_paths, scale_factor=1.0):
     """
@@ -37,11 +102,13 @@ def estimate_fundamental_matrix(points1, points2):
     
     # F is given by the column of Vh that has the smallest singular value
     F = np.reshape(Vh[-1], (3, 3))
-    
+   
     # force F to be singular by setting smallest singular value to zero
     U, S, Vh = np.linalg.svd(F)
     S[-1] = 0
     F = U @ np.diag(S) @ Vh
+
+
 
     return F
 
@@ -88,7 +155,7 @@ def fundamental_ransac(correspondences, iterations = 2000, threshold = 0.01):
     return best_F, best_inliers
 
 
-def get_nonmax_suppression(img, window_size=5):
+def get_nonmax_suppression(img, window_size=3):
     """
     Apply non-maximum suppression to an image
 
@@ -321,9 +388,17 @@ def main():
     print("Fundamental Matrix: \n", fundmental_matrix)
     display_correspondences(img1, img2, correspondences, best_set_corresp)
     display_epipolar_lines(img1, img2, fundmental_matrix, correspondences)
-    
-    # v. disparity map
-    
+
+    # v. Compute the disparity map
+    # Convert to grayscale
+    disparity_map = computeDisparityMap(img1, img2, fundmental_matrix)
+
+    # vi. Display the disparity map
+    # Display disparity map
+    plt.cm.jet(disparity_map)
+    plt.imshow(disparity_map)
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
