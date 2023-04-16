@@ -7,109 +7,70 @@ import matplotlib.pyplot as plt
 from tqdm import *
 
 
-# def computeDisparityMap(img1, img2, F):
-#     """
-#     Compute the disparity map using the fundamental matrix.
-#     ## Args:
-#         stereo images: input images
-#         F: Best fundamental calculated
-#     ## Returns:
-#         Normalized disparity map
-#     """
-#     # Convert to grayscale.
-#     image_1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-#     image_2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+def create_disparity_map(left_image, right_image, window_size=9, max_disparity=120):
+    """
+    Creates a horizontal disparity map from two input images using the Block Matching Algorithm.
 
-#     # Set the window size.
-#     window = 7
+    ## Args:
+        left_image (numpy.ndarray): The left input image.
+        right_image (numpy.ndarray): The right input image.
+        window_size (int, optional): The size of the window used for block matching. Defaults to 5.
+        max_disparity (int, optional): The maximum allowed disparity. Defaults to 64.
 
-#     # Initialize the left and right stero arrays
-#     left_arr, right_arr = image_1, image_2
-#     left_arr, right_arr = left_arr.astype(int), right_arr.astype(int)
+    ## Returns:
+        numpy.ndarray: The horizontal disparity map.
+    """
 
-#     # CHECK
-#     if left_arr.shape != right_arr.shape:
-#         raise Exception("Left- Right image shape do not match")
-    
-#     # Get the h and w of the image
-#     h, w = left_arr.shape
+    # Convert input images to grayscale
+    left_gray = cv2.cvtColor(left_image, cv2.COLOR_BGR2GRAY)
+    right_gray = cv2.cvtColor(right_image, cv2.COLOR_BGR2GRAY)
 
-#     # Initialize the disparity map
-#     disparity_map = np.zeros((h,w))
+    # Get image dimensions
+    height, width = left_gray.shape
 
-#     #Compute disparity of each pixel.
-#     x_new = w - (2*window)
-#     for y in tqdm(range(window, h-window)):
-#         block_left_arr = []
-#         block_right_arr = []
-#         for x in range(window, w-window):
-#             block_left = left_arr[y:y + window,
-#                                     x:x + window]
-#             block_left_arr.append(block_left.flatten())
+    # Initialize the disparity map with zeros
+    disparity_map = np.zeros((height, width), dtype=np.uint8)
 
-#             block_right = right_arr[y:y + window,
-#                                     x:x + window]
-#             block_right_arr.append(block_right.flatten())
+    # Compute half of the window size
+    half_window = window_size // 2
 
-#         block_left_arr = np.array(block_left_arr)
-#         block_left_arr = np.repeat(block_left_arr[:, :, np.newaxis], x_new, axis=2)
+    # Loop through each pixel in the left image
+    for y in tqdm(range(half_window, height - half_window)):
+        for x in range(half_window, width - half_window):
+            # Extract the window from the left image
+            left_window = left_gray[y - half_window:y + half_window + 1, x - half_window:x + half_window + 1]
 
-#         block_right_arr = np.array(block_right_arr)
-#         block_right_arr = np.repeat(block_right_arr[:, :, np.newaxis], x_new, axis=2)
-#         block_right_arr = block_right_arr.T
+            # Initialize variables for storing the best disparity and matching cost
+            best_disparity = 0
+            best_cost = float('inf')
 
-#         abs_diff = np.abs(block_left_arr - block_right_arr)
-#         sum_abs_diff = np.sum(abs_diff, axis = 1)
-#         idx = np.argmin(sum_abs_diff, axis = 0)
-#         disparity = np.abs(idx - np.linspace(0, x_new, x_new, dtype=int)).reshape(1, x_new)
-#         disparity_map[y, 0:x_new] = disparity 
-#         # Convert to uint8
-#         disparity_map_int = np.uint8(disparity_map * 255 / np.max(disparity_map))
+            # Loop through each possible disparity value
+            for disparity in range(max_disparity):
+                # Compute the corresponding x-coordinate in the right image
+                x_right = x - disparity
 
-#     return disparity_map_int
+                # Skip if x-coordinate is out of bounds
+                if x_right < half_window or x_right >= width - half_window:
+                    continue
 
-def ncc_score(block_left, block_right):
-    """Compute the normalized cross-correlation (NCC) score between two blocks."""
-    mean_left = np.mean(block_left)
-    mean_right = np.mean(block_right)
-    std_left = np.std(block_left)
-    std_right = np.std(block_right)
-    ncc = np.sum((block_left - mean_left) * (block_right - mean_right)) / (std_left * std_right * block_left.size)
-    return ncc
+                # Extract the window from the right image
+                right_window = right_gray[y - half_window:y + half_window + 1, x_right - half_window:x_right + half_window + 1]
 
-def non_overlapping_block_matching(left_img, right_img, block_size=5):
-    """Compute the disparity map using non-overlapping block matching."""
-    left_img = cv2.cvtColor(left_img, cv2.COLOR_BGR2GRAY)
-    right_img = cv2.cvtColor(right_img, cv2.COLOR_BGR2GRAY)
+                # Compute the sum of absolute differences (SAD) between the windows
+                cost = np.sum(np.square(left_window - right_window))
 
-    # Pad the images to ensure that the blocks can be extracted from the edges
-    pad_size = block_size // 2
-    left_img_padded = np.pad(left_img, pad_size, mode='constant', constant_values=0)
-    right_img_padded = np.pad(right_img, pad_size, mode='constant', constant_values=0)
-    # Initialize the disparity map
-    disparity_map = np.zeros_like(left_img)
-    # Compute the disparity for each block in the left image
-    for i in tqdm(range(pad_size, left_img.shape[0] + pad_size, block_size)):
-        for j in range(pad_size, left_img.shape[1] + pad_size, block_size):
-            # Extract the current block in the left image
-            block_left = left_img_padded[i-pad_size:i+pad_size+1, j-pad_size:j+pad_size+1]
-            # Search for the best matching block in the right image
-            max_ncc = -1
-            for k in range(pad_size, right_img.shape[1] + pad_size - block_size + 1, block_size):
-                # Extract the current block in the right image
-                block_right = right_img_padded[i-pad_size:i+pad_size+1, k-pad_size:k+pad_size+1]
-                # Compute the NCC score between the two blocks
-                ncc = ncc_score(block_left, block_right)
-                # Update the best matching block if the NCC score is higher than the current maximum
-                if ncc > max_ncc:
-                    max_ncc = ncc
-                    disparity = k - j
-            # Update the disparity map with the computed disparity
-            disparity_map[i-pad_size:i+pad_size+1, j-pad_size:j+pad_size+1] = disparity
-    # Normalize the disparity map from 0 to 255
-    disparity_map_normalized = cv2.normalize(disparity_map, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                # Update the best disparity and matching cost if necessary
+                if cost < best_cost:
+                    best_disparity = disparity
+                    best_cost = cost
 
-    return disparity_map_normalized
+            # Store the best disparity value in the disparity map
+            disparity_map[y, x] = best_disparity
+
+            # Brighten the disparity map for visualization
+        disparity_map = cv2.normalize(disparity_map, disparity_map, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+
+    return disparity_map
 
 
 def get_images(image_paths, scale_factor=1.0):
@@ -414,7 +375,7 @@ def main():
     image_filenames = args.image_filenames
 
     # Read in the images
-    img1, img2 = get_images(image_filenames, scale_factor=1.0)
+    img1, img2 = get_images(image_filenames, scale_factor=0.8)
 
     # ii. Apply Harris corner detector to both images: compute Harris R function over the
     # image, and then do non-maximum suppression to get a sparse set of corner features.
@@ -434,10 +395,10 @@ def main():
 
     # v. Compute the disparity map
     # Convert to grayscale
-    #disparity_map = non_overlapping_block_matching(img1, img2, 7)
-    disparity_map = non_overlapping_block_matching(img1, img2, 3)
+    disparity_map = create_disparity_map(img1, img2, window_size=15, max_disparity=64)
 
-    plt.imshow(disparity_map, cmap='plasma_r')
+
+    plt.imshow(disparity_map, cmap='gray')
     plt.show()
 
 
