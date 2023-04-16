@@ -33,4 +33,4 @@ python3 stereo.py <left-image> <right-image>
 ![Epipolar Lines](./output_epipolar_lines.jpg)
 
 ## Disparity Map
-![Disparity Map](./disparity_map.png)
+![Disparity Map](./output_disparity_map.jpg)
