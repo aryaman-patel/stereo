@@ -397,9 +397,8 @@ def main():
     # Convert to grayscale
     disparity_map = create_disparity_map(img1, img2, window_size=7, max_disparity=64)
 
-
-    plt.imshow(disparity_map, cmap='gray')
-    plt.show()
+    # Save the disparity map
+    cv2.imwrite("output_disparity_map.jpg", disparity_map)
 
 
 if __name__ == "__main__":
