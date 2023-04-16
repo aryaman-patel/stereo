@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from tqdm import *
 
 
-def create_disparity_map(left_image, right_image, window_size=9, max_disparity=120):
+def create_disparity_map(left_image, right_image, window_size=11, max_disparity=64):
     """
     Creates a horizontal disparity map from two input images using the Block Matching Algorithm.
 
@@ -395,7 +395,7 @@ def main():
 
     # v. Compute the disparity map
     # Convert to grayscale
-    disparity_map = create_disparity_map(img1, img2, window_size=15, max_disparity=64)
+    disparity_map = create_disparity_map(img1, img2, window_size=7, max_disparity=64)
 
 
     plt.imshow(disparity_map, cmap='gray')
